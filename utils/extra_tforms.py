@@ -1,6 +1,7 @@
 from scipy.stats import truncnorm
 from torch_geometric.transforms import BaseTransform
 from numpy.random import default_rng
+import numpy as np
 
 class Jitter(BaseTransform):
     def __init__(self, clip, loc=0, scale=1):
@@ -24,3 +25,17 @@ class RandomShift(BaseTransform):
         return data
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}({self.shift})'
+
+class RandomScale(BaseTransform):
+    def __init__(self, smin, smax):
+        assert(smin > 0)
+        assert(smax > 0)
+        self.rng = default_rng()
+        self.smin = smin
+        self.smax = smax
+    def __call__(self, data):
+        rt = self.rng.uniform(self.smin, self.smax, (1,3))
+        data.pos = np.multiply(data.pos, rt)
+        return data
+    def __repr__(self) -> str:
+        return f'{self.__class__.__name__}({self.smin})'
