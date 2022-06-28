@@ -1,6 +1,10 @@
-#https://www.medien.ifi.lmu.de/lehre/ws2122/gp/
-#https://github.com/pyg-team/pytorch_geometric/blob/master/examples/dgcnn_classification.py
-# Original code: https://github.com/WangYueFt/dgcnn/blob/master/tensorflow/models/dgcnn.py
+# Useful resources:
+# https://www.medien.ifi.lmu.de/lehre/ws2122/gp/
+# https://github.com/pyg-team/pytorch_geometric/blob/master/examples/dgcnn_classification.py
+#
+# Original code:
+# https://github.com/WangYueFt/dgcnn/blob/master/tensorflow/models/dgcnn.py
+
 import torch
 from torch_geometric.nn import DynamicEdgeConv, MLP, global_max_pool, global_mean_pool
 
@@ -9,12 +13,12 @@ class DGCNN(torch.nn.Module):
         super(DGCNN, self).__init__()
         act_fun = 'leaky_relu'
         act_args = {'negative_slope': 0.2} # Weird, default=0.01
-        self.conv1 = DynamicEdgeConv(MLP([2*3,  64], act=act_fun, act_kwargs=act_args), k, aggr)
-        self.conv2 = DynamicEdgeConv(MLP([2*64, 64], act=act_fun, act_kwargs=act_args), k, aggr)
-        self.conv3 = DynamicEdgeConv(MLP([2*64, 64], act=act_fun, act_kwargs=act_args), k, aggr)
-        self.conv4 = DynamicEdgeConv(MLP([2*64, 128],act=act_fun, act_kwargs=act_args), k, aggr)
+        self.conv1 = DynamicEdgeConv(MLP([2*3,   64], act=act_fun, act_kwargs=act_args), k, aggr)
+        self.conv2 = DynamicEdgeConv(MLP([2*64,  64], act=act_fun, act_kwargs=act_args), k, aggr)
+        self.conv3 = DynamicEdgeConv(MLP([2*64,  128], act=act_fun, act_kwargs=act_args), k, aggr)
+        self.conv4 = DynamicEdgeConv(MLP([2*128, 256],act=act_fun, act_kwargs=act_args), k, aggr)
         
-        self.mlp1 = MLP([3 * 64 + 128, 1024], act=act_fun, act_kwargs=act_args)
+        self.mlp1 = MLP([2*256, 1024], act=act_fun, act_kwargs=act_args)
         self.mlp2 = MLP([2*1024, 512, 256, out_channels], act=act_fun, act_kwargs=act_args, dropout=0.5)
     
     def forward(self, data):
