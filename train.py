@@ -7,8 +7,11 @@ from torch_geometric.datasets import ModelNet
 from torch_geometric.loader import DataLoader
 import torch_geometric.transforms as T
 import numpy as np
-from utils.extra_tforms import RandomScale, RandomShift, NormalizeArea, Jitter
+from utils.extra_tforms import RandomScale, RandomShift, NormalizeArea, Jitter, FixedSize
 from model import DGCNN
+from ModelNetDGCNN import ModelNetDGCNN
+
+from GeomShapes import GeomShapes
 
 def train(n):
     rdeg = np.degrees(0.18)
@@ -21,9 +24,16 @@ def train(n):
     #                Jitter(0.05, loc=0, scale=0.01), 
     #                T.RandomScale((0.9, 1.1)),
     #                T.RandomRotate(rdeg, axis=0),T.RandomRotate(rdeg, axis=1),T.RandomRotate(rdeg, axis=2)])
+    tf_geom = T.Compose([T.RandomScale((0.95, 1.05)),
+                    T.RandomRotate(180, axis=0),T.RandomRotate(180, axis=1),T.RandomRotate(180, axis=2),
+                    RandomShift(0.01)])
     tf = T.Compose([T.SamplePoints(1024), T.NormalizeScale(),RandomScale(2./3.,3./2.), 
                     RandomShift(0.2)])
-    mn = ModelNet("data", name='40', transform=tf)
+    tf = T.Compose([T.FixedPoints(1024), RandomScale(2./3.,3./2.), 
+                    RandomShift(0.2)])
+    #mn = ModelNet("data", name='40', transform=tf)
+    mn = ModelNetDGCNN("data/mn_ply", transform=tf)
+    #mn = GeomShapes(transform=tf_geom)
     print('Number of samples: {:d}'.format(len(mn)))
     print('Number of classes: {:d}'.format(mn.num_classes))
     LR_START = 0.1
@@ -102,10 +112,11 @@ def train(n):
     torch.save(model,'model.pt')
 
 def testloader(n):
-    tf = T.Compose([T.SamplePoints(1024), T.NormalizeScale()])
+    tf = T.Compose([T.FixedPoints(1024)])
     #tf = T.Compose([T.NormalizeScale(), NormalizeArea(target_area=10.24),T.SamplePoints(n)])
-    mn = ModelNet("data", name='40', train=False, transform=tf)
-    loader = DataLoader(mn, batch_size=32, shuffle=True)
+    #mn = ModelNet("data", name='40', train=False, transform=tf)
+    mn = ModelNetDGCNN("data/mn_ply", train=False, transform=tf)
+    loader = DataLoader(mn, batch_size=32, shuffle=True, drop_last=False)
     return loader
 
 def test(n):
