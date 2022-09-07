@@ -1,8 +1,9 @@
 from scipy.stats import truncnorm
-from torch_geometric.transforms import BaseTransform
+from torch_geometric.transforms import BaseTransform, Center
 from numpy.random import default_rng
 import numpy as np
 import torch
+from torch import linalg
 
 class Jitter(BaseTransform):
     def __init__(self, clip, loc=0, scale=1):
@@ -15,6 +16,17 @@ class Jitter(BaseTransform):
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}({self.clip})'
     
+class FixedSize(BaseTransform):
+    def __init__(self, n):
+        assert(n > 0)
+        self.n = n
+    def __call__(self, data):
+        data.pos = data.pos[:self.n,:]
+        data.y = data.y[:self.n]
+        return data
+    def __repr__(self) -> str:
+        return f'{self.__class__.__name__}({self.n})'
+
 class RandomShift(BaseTransform):
     def __init__(self, shift):
         assert(shift > 0)
@@ -40,6 +52,18 @@ class RandomScale(BaseTransform):
         return data
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}({self.smin})'
+
+class SphereNormalize(BaseTransform):
+    def __init__(self):
+        self.center = Center()
+
+    def __call__(self, data):
+        data = self.center(data)
+
+        scale = (1 / linalg.vector_norm(data.pos, dim=1).max()) * 0.999999
+        data.pos = data.pos * scale
+
+        return data
 
 class NormalizeArea(BaseTransform):
     def __init__(self, target_area=1):

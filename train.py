@@ -7,47 +7,29 @@ from torch_geometric.datasets import ModelNet
 from torch_geometric.loader import DataLoader
 import torch_geometric.transforms as T
 import numpy as np
-from utils.extra_tforms import RandomScale, RandomShift, NormalizeArea, Jitter, FixedSize
+from utils.extra_tforms import RandomScale, RandomShift, SphereNormalize
 from model import DGCNN
-from ModelNetDGCNN import ModelNetDGCNN
 
-from GeomShapes import GeomShapes
-
-def train(n):
-    rdeg = np.degrees(0.18)
-    #tf = T.Compose([T.NormalizeScale(),NormalizeArea(target_area=10.24),T.SamplePoints(n),
-    #                T.RandomRotate(180, axis=2), Jitter(0.05, loc=0, scale=0.01), 
-    #                T.RandomScale((0.9, 1.1)),
-    #                T.RandomRotate(rdeg, axis=0),T.RandomRotate(rdeg, axis=1),T.RandomRotate(rdeg, axis=2)])
-    #tf = T.Compose([T.NormalizeScale(), T.SamplePoints(n),
-    #                #T.RandomRotate(180, axis=2),
-    #                Jitter(0.05, loc=0, scale=0.01), 
-    #                T.RandomScale((0.9, 1.1)),
-    #                T.RandomRotate(rdeg, axis=0),T.RandomRotate(rdeg, axis=1),T.RandomRotate(rdeg, axis=2)])
-    tf_geom = T.Compose([T.RandomScale((0.95, 1.05)),
-                    T.RandomRotate(180, axis=0),T.RandomRotate(180, axis=1),T.RandomRotate(180, axis=2),
-                    RandomShift(0.01)])
-    tf = T.Compose([T.SamplePoints(1024), T.NormalizeScale(),RandomScale(2./3.,3./2.), 
-                    RandomShift(0.2)])
-    tf = T.Compose([T.FixedPoints(1024), RandomScale(2./3.,3./2.), 
-                    RandomShift(0.2)])
-    #mn = ModelNet("data", name='40', transform=tf)
-    mn = ModelNetDGCNN("data/mn_ply", transform=tf)
-    #mn = GeomShapes(transform=tf_geom)
-    print('Number of samples: {:d}'.format(len(mn)))
-    print('Number of classes: {:d}'.format(mn.num_classes))
+def train(dataset, k, n, uid):
     LR_START = 0.1
     LR_END = 0.001
     EPOCHS_MAX = 250
 
+    #tf = T.Compose([RandomScale(2./3.,3./2.), RandomShift(0.2)])
+    #tf_pre = T.Compose([T.SamplePoints(1024), SphereNormalize()])
+    tf = T.Compose([T.SamplePoints(), RandomScale(2./3.,3./2.), RandomShift(0.2)])
+    tf_pre = SphereNormalize()
+    mn = ModelNet(dataset, name='40', pre_transform=tf_pre, transform=tf)
+    print('Number of samples: {:d}'.format(len(mn)))
+    print('Number of classes: {:d}'.format(mn.num_classes))
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = DGCNN(mn.num_classes, k=20).to(device).float()
-    #optimiser = torch.optim.Adam(model.parameters(), lr=0.001)
+    model = DGCNN(mn.num_classes, k=k).to(device).float()
     optimiser = torch.optim.SGD(model.parameters(), lr=LR_START, momentum=0.9, weight_decay=1e-4)
     scheduler = CosineAnnealingLR(optimiser, EPOCHS_MAX, eta_min=LR_END)
 
     loader = DataLoader(mn, batch_size=32, shuffle=True)
-    loader_test = testloader(n=n)
+    loader_test = testloader(dataset, n)
 
     hist_lr = np.zeros((EPOCHS_MAX,1))
     hist_loss = np.zeros((EPOCHS_MAX,1))
@@ -66,7 +48,6 @@ def train(n):
 
             optimiser.zero_grad()
             raw = model(batch)
-            #print(raw.size())
             loss = F.cross_entropy(raw, batch.y, label_smoothing=0.2)
             loss.backward()
             optimiser.step()
@@ -105,45 +86,59 @@ def train(n):
         test_oacc = tot_acc/tot_seen
         if test_oacc > best_acc:
             best_acc = test_oacc
+            # Only start saving the best model, when approaching the end of the training session.
+            if epoch > 180:
+                torch.save(model, 'model_best_{:s}.pt'.format(uid))
 
         print('Epoch: {:3d} train loss: {:.2f} acc: {:2f} test acc: {:2f}'.format(epoch,tot_loss/tot_batch, train_oacc, test_oacc))
 
     print('Best test accuracy: {:2f}'.format(best_acc))
-    torch.save(model,'model.pt')
+    torch.save(model, 'model_last_{:s}.pt'.format(uid))
 
-def testloader(n):
-    tf = T.Compose([T.FixedPoints(1024)])
-    #tf = T.Compose([T.NormalizeScale(), NormalizeArea(target_area=10.24),T.SamplePoints(n)])
-    #mn = ModelNet("data", name='40', train=False, transform=tf)
-    mn = ModelNetDGCNN("data/mn_ply", train=False, transform=tf)
+def testloader(dataset, n):
+    mn = ModelNet(dataset, name='40', train=False, transform=T.SamplePoints(n))
     loader = DataLoader(mn, batch_size=32, shuffle=True, drop_last=False)
     return loader
 
-def test(n):
-    loader = testloader(n=n)
+def test(dataset, k, n, uid):
+    loader = testloader(dataset, n)
+    mn = loader.dataset
     print('Number of samples: {:d}'.format(len(mn)))
     print('Number of classes: {:d}'.format(mn.num_classes))
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = DGCNN(mn.num_classes, k=20).to(device).float()
-    model = torch.load('model.pt')
+    model = DGCNN(mn.num_classes, k=k).to(device).float()
+    model = torch.load('model_best_{:s}.pt'.format(uid))
 
     model.eval()
     tot_seen = 0
     tot_acc = 0
+    class_seen = np.zeros((mn.num_classes))
+    class_acc = np.zeros((mn.num_classes))
 
-    for batch in loader:
-        batch.to(device)
+    with torch.no_grad():
+        for batch in loader:
+            batch.to(device)
 
-        raw = model(batch)
-        preds = raw.max(dim=1)[1]
+            raw = model(batch)
+            preds = raw.max(dim=1)[1]
+            preds = (preds == batch.y).cpu()
+            
+            # Per class
+            for cls in range(mn.num_classes):
+                class_seen[cls] = class_seen[cls] + (cls == batch.y.cpu()).sum()
+                class_acc[cls] = class_acc[cls] + preds[cls == batch.y.cpu()].sum()
 
-        acc = (preds == batch.y).sum()
-        tot_acc = tot_acc + acc
+            acc = preds.sum()
+            tot_acc = tot_acc + acc
 
-        tot_seen = tot_seen + len(batch.y)
+            tot_seen = tot_seen + len(batch.y)
 
-    print('acc: {:2f}'.format(tot_acc/tot_seen))
+    print(class_seen)
+    #print(class_acc)
+    #print(class_acc/class_seen)
+    print('overall accuracy: {:2f}'.format(tot_acc/tot_seen))
+    print('mean class accuracy: {:2f}'.format(np.nan_to_num((class_acc/class_seen)).mean()))
 
 if __name__ == "__main__":
 
@@ -151,9 +146,12 @@ if __name__ == "__main__":
     parser.add_argument('--eval', type=bool, default=False, help='Evaluate model')
     args = parser.parse_args()
     n = 1024
+    k = 20
+    dataset = 'data/mn'
+    uid = '0'
     if args.eval:
         print('eval')
-        test(n=n)
+        test(dataset, k, n=n, uid)
     else:
         print('train')
-        train(n=n)
+        train(dataset, k, n, uid)
