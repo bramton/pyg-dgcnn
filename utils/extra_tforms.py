@@ -1,5 +1,6 @@
 from scipy.stats import truncnorm
 from torch_geometric.transforms import BaseTransform, Center
+from torch_geometric.transforms import LinearTransformation
 from numpy.random import default_rng
 import numpy as np
 import torch
@@ -8,7 +9,8 @@ from torch import linalg
 class Jitter(BaseTransform):
     def __init__(self, clip, loc=0, scale=1):
         assert(clip > 0)
-        self.rv = truncnorm(-clip, clip, loc, scale)
+        a, b = (clip - loc) / scale, (clip - loc) / scale
+        self.rv = truncnorm(-a, b, loc, scale)
     def __call__(self, data):
         noise = self.rv.rvs(size=tuple(data.pos.shape))
         data.pos = data.pos + noise
@@ -16,6 +18,28 @@ class Jitter(BaseTransform):
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}({self.clip})'
     
+class RandomRotateArvo(BaseTransform):
+    def __init__(self):
+        self.rng = default_rng()
+    def __call__(self, data):
+        x1,x2,x3 = self.rng.uniform(size=3)
+        # Random rotation around z
+        R = np.eye(3)
+        R[0,0] = R[1,1] = np.cos(2*np.pi*x1)
+        R[0,1] = np.sin(2*np.pi*x1)
+        R[1,0] = -np.sin(2*np.pi*x1)
+
+        v = np.zeros((3,1))
+        v[0] = np.cos(2*np.pi*x2)*np.sqrt(x3)
+        v[1] = np.sin(2*np.pi*x2)*np.sqrt(x3)
+        v[2] = np.sqrt(1.0 - x3)
+        H = 2*np.outer(v, v) - np.eye(3)
+        M = H @ R
+        return LinearTransformation(M)(data)
+
+    def __repr__(self) -> str:
+        return f'{self.__class__.__name__}({x1})'
+
 class FixedSize(BaseTransform):
     def __init__(self, n):
         assert(n > 0)
@@ -62,8 +86,10 @@ class SphereNormalize(BaseTransform):
 
         scale = (1 / linalg.vector_norm(data.pos, dim=1).max()) * 0.999999
         data.pos = data.pos * scale
-
         return data
+
+    def __repr__(self) -> str:
+        return f'{self.__class__.__name__}'
 
 class NormalizeArea(BaseTransform):
     def __init__(self, target_area=1):
